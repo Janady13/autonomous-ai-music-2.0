@@ -1,0 +1,49 @@
+name: Deploy to Azure Web App
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create deployment zip
+        run: |
+          zip -qr app.zip . \
+            -x ".venv/*" "__pycache__/*" \
+            -x ".git/*" ".github/*"
+          echo "ZIP_PATH=$PWD/app.zip" >> $GITHUB_ENV
+
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: joseph-omniserver
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          package: ${{ env.ZIP_PATH }}
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+
+      - name: Set environment variables
+        uses: azure/cli@v2
+        with:
+          inlineScript: |
+            az webapp config appsettings set \
+              --resource-group joseph-rg \
+              --name joseph-omniserver \
+              --settings MONGODB_URI="${{ secrets.MONGODB_URI }}" PORT=8000
+
+      - name: Post-deploy ping
+        run: |
+          set -e
+          curl -sSf https://joseph-omniserver.azurewebsites.net/api/v1/health || true
+
